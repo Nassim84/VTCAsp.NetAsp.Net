@@ -1,76 +1,67 @@
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using MonBackendVTC.Models;
-using System.Net;
-using System.Net.Mail;
-using System.Net.Sockets;
 
 namespace MonBackendVTC.Services
 {
     public class EmailService
     {
-        public void EnvoyerDevis(DevisRequest devis)
+        private readonly HttpClient _http;
+
+        public EmailService(IHttpClientFactory factory)
         {
-            var smtpHost = Environment.GetEnvironmentVariable("SMTP_HOST");
-            var smtpPort = int.Parse(Environment.GetEnvironmentVariable("SMTP_PORT") ?? "587");
-            var smtpUser = Environment.GetEnvironmentVariable("SMTP_USER");
-            var smtpPass = Environment.GetEnvironmentVariable("SMTP_PASSWORD");
-            var destinataire = Environment.GetEnvironmentVariable("SMTP_RECIPIENT");
+            _http = factory.CreateClient();
+        }
 
-            Console.WriteLine("[SMTP TEST] Test connectivité...");
+        public async Task EnvoyerDevis(DevisRequest devis)
+        {
+            var apiKey = Environment.GetEnvironmentVariable("BREVO_API_KEY");
+            var senderEmail = Environment.GetEnvironmentVariable("BREVO_SENDER_EMAIL");
+            var senderName = Environment.GetEnvironmentVariable("BREVO_SENDER_NAME");
+            var toEmail = Environment.GetEnvironmentVariable("BREVO_RECIPIENT");
 
-            try
+            Console.WriteLine("[BREVO] Envoi devis mail...");
+            Console.WriteLine($"[BREVO] To: {toEmail}");
+
+            var html = $@"
+<h2>📩 Nouvelle demande de devis</h2>
+<p><b>Nom :</b> {devis.Nom}</p>
+<p><b>Email :</b> {devis.Email}</p>
+<p><b>Téléphone :</b> {devis.Telephone}</p>
+<p><b>Départ :</b> {devis.Depart}</p>
+<p><b>Arrivée :</b> {devis.Arrivee}</p>
+<p><b>Date :</b> {devis.DateHeure}</p>
+<p><b>Message :</b> {devis.Message}</p>
+";
+
+            var payload = new
             {
-                using var tcp = new TcpClient();
-                var task = tcp.ConnectAsync(smtpHost, smtpPort);
-                task.Wait(5000);
-
-                if (tcp.Connected)
-                    Console.WriteLine("[SMTP TEST] ✅ SMTP reachable");
-                else
-                    Console.WriteLine("[SMTP TEST] ❌ SMTP NOT reachable");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("[SMTP TEST] ❌ Exception: " + ex.Message);
-            }
-
-            if (string.IsNullOrWhiteSpace(smtpHost) || string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPass) || string.IsNullOrWhiteSpace(destinataire))
-            {
-                throw new InvalidOperationException("Les variables d'environnement SMTP sont manquantes ou incomplètes.");
-            }
-
-            var subject = $"Nouveau devis de {devis.Nom}";
-
-            var body = $@"
-            <html>
-            <body style=""font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; color: #333;"">
-                <h2 style=""color: #007BFF;"">📩 Nouvelle demande de devis</h2>
-                <p><strong>Nom :</strong> {devis.Nom}</p>
-                <p><strong>Email :</strong> {devis.Email}</p>
-                <p><strong>Téléphone :</strong> {devis.Telephone}</p>
-                <p><strong>Départ :</strong> {devis.Depart}</p>
-                <p><strong>Arrivée :</strong> {devis.Arrivee}</p>
-                <p><strong>Date/Heure :</strong> {devis.DateHeure:dd/MM/yyyy HH:mm}</p>
-                <p><strong>Message :</strong><br />{(string.IsNullOrWhiteSpace(devis.Message) ? "Aucun message." : devis.Message)}</p>
-
-                <hr style=""margin-top: 30px;"" />
-                <p style=""font-size: 0.9em; color: #999;"">
-                Cet email a été généré automatiquement depuis le site VTC.
-                </p>
-            </body>
-            </html>";
-
-            var client = new SmtpClient(smtpHost, smtpPort)
-            {
-                Credentials = new NetworkCredential(smtpUser, smtpPass),
-                EnableSsl = true
+                sender = new { name = senderName, email = senderEmail },
+                to = new[] { new { email = toEmail, name = "Admin" } },
+                subject = $"Nouveau devis de {devis.Nom}",
+                htmlContent = html
             };
 
-            var message = new MailMessage(smtpUser, destinataire, subject, body)
-            {
-                IsBodyHtml = true
-            };
+            var json = JsonSerializer.Serialize(payload);
 
-            client.Send(message);
+            var req = new HttpRequestMessage(
+                HttpMethod.Post,
+                "https://api.brevo.com/v3/smtp/email"
+            );
+
+            req.Headers.Add("api-key", apiKey);
+            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var res = await _http.SendAsync(req);
+            var body = await res.Content.ReadAsStringAsync();
+
+            Console.WriteLine("[BREVO] Status: " + res.StatusCode);
+            Console.WriteLine("[BREVO] Response: " + body);
+
+            if (!res.IsSuccessStatusCode)
+                throw new Exception("Brevo send failed");
         }
     }
 }

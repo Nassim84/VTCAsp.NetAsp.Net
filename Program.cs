@@ -19,6 +19,7 @@ builder.Services.AddCors(options =>
 // Services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddHttpClient();          
 builder.Services.AddSingleton<EmailService>();
 
 var app = builder.Build();
