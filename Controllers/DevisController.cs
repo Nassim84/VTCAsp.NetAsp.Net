@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using MonBackendVTC.Models;
 using MonBackendVTC.Services;
 
@@ -6,50 +7,68 @@ namespace MonBackendVTC.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [EnableRateLimiting("devis")] // Active le rate limiting
     public class DevisController : ControllerBase
     {
         private readonly EmailService _emailService;
+        private readonly ILogger<DevisController> _logger;
 
-        public DevisController(EmailService emailService)
+        public DevisController(EmailService emailService, ILogger<DevisController> logger)
         {
             _emailService = emailService;
+            _logger = logger;
         }
 
         [HttpPost]
-        public IActionResult Envoyer([FromBody] DevisRequest devis)
+        public async Task<IActionResult> Envoyer([FromBody] DevisRequest devis)
         {
-            Console.WriteLine($"[DevisController] 📩 Nouvelle demande reçue de {devis.Nom} ({devis.Email})");
+            _logger.LogInformation("📩 Nouvelle demande reçue de {Nom} ({Email})", devis.Nom, devis.Email);
 
-            // Vérifie que le modèle est valide
+            // Validation du modèle
             if (!ModelState.IsValid)
             {
-                Console.WriteLine("[DevisController] ❌ Modèle invalide");
+                _logger.LogWarning("❌ Modèle invalide pour {Nom}", devis.Nom);
                 return BadRequest(ModelState);
             }
 
-            // Validation métier personnalisée
-            if (devis.Depart == devis.Arrivee)
+            // Validations métier
+            if (devis.Depart?.Trim().Equals(devis.Arrivee?.Trim(), StringComparison.OrdinalIgnoreCase) == true)
             {
-                Console.WriteLine("[DevisController] ⚠️ Lieu de départ et d'arrivée identiques");
+                _logger.LogWarning("⚠️ Départ et arrivée identiques pour {Nom}", devis.Nom);
                 return BadRequest(new { message = "Le départ et l'arrivée ne peuvent pas être identiques." });
             }
 
             if (devis.DateHeure <= DateTime.Now)
             {
-                Console.WriteLine("[DevisController] ⚠️ Date de départ passée");
+                _logger.LogWarning("⚠️ Date passée pour {Nom}", devis.Nom);
                 return BadRequest(new { message = "La date de départ doit être dans le futur." });
+            }
+
+            // Validation supplémentaire : date pas trop loin dans le futur
+            if (devis.DateHeure > DateTime.Now.AddYears(1))
+            {
+                _logger.LogWarning("⚠️ Date trop éloignée pour {Nom}", devis.Nom);
+                return BadRequest(new { message = "La date ne peut pas dépasser 1 an." });
             }
 
             try
             {
-                _emailService.EnvoyerDevis(devis);
-                Console.WriteLine("[DevisController] ✅ Email envoyé avec succès !");
-                return Ok(new { message = "Devis envoyé avec succès." });
+                await _emailService.EnvoyerDevisAsync(devis);
+                _logger.LogInformation("✅ Devis traité avec succès pour {Nom}", devis.Nom);
+
+                return Ok(new
+                {
+                    message = "Devis envoyé avec succès. Nous vous recontacterons rapidement.",
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DevisController] ❌ Erreur lors de l'envoi du mail : {ex.Message}");
-                return StatusCode(500, new { message = "Erreur serveur : impossible d'envoyer le devis." });
+                _logger.LogError(ex, "❌ Erreur lors de l'envoi du devis pour {Nom}", devis.Nom);
+                return StatusCode(500, new
+                {
+                    message = "Erreur serveur. Veuillez réessayer ou nous contacter directement."
+                });
             }
         }
     }
