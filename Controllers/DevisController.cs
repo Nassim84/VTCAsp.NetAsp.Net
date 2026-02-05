@@ -1,75 +1,60 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
+using System.Net;
+using System.Net.Mail;
 using MonBackendVTC.Models;
-using MonBackendVTC.Services;
 
-namespace MonBackendVTC.Controllers
+namespace MonBackendVTC.Services
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    [EnableRateLimiting("devis")] // Active le rate limiting
-    public class DevisController : ControllerBase
+    public class EmailService
     {
-        private readonly EmailService _emailService;
-        private readonly ILogger<DevisController> _logger;
-
-        public DevisController(EmailService emailService, ILogger<DevisController> logger)
+        public void EnvoyerDevis(DevisRequest devis)
         {
-            _emailService = emailService;
-            _logger = logger;
-        }
+            var smtpHost = Environment.GetEnvironmentVariable("SMTP_HOST");
+            var smtpPort = int.Parse(Environment.GetEnvironmentVariable("SMTP_PORT") ?? "587");
+            var smtpUser = Environment.GetEnvironmentVariable("SMTP_USER");
+            var smtpPass = Environment.GetEnvironmentVariable("SMTP_PASSWORD");
+            var destinataire = Environment.GetEnvironmentVariable("SMTP_RECIPIENT");
 
-        [HttpPost]
-        public async Task<IActionResult> Envoyer([FromBody] DevisRequest devis)
-        {
-            _logger.LogInformation("📩 Nouvelle demande reçue de {Nom} ({Email})", devis.Nom, devis.Email);
-
-            // Validation du modèle
-            if (!ModelState.IsValid)
+            if (string.IsNullOrWhiteSpace(smtpHost) ||
+                string.IsNullOrWhiteSpace(smtpUser) ||
+                string.IsNullOrWhiteSpace(smtpPass) ||
+                string.IsNullOrWhiteSpace(destinataire))
             {
-                _logger.LogWarning("❌ Modèle invalide pour {Nom}", devis.Nom);
-                return BadRequest(ModelState);
+                throw new InvalidOperationException("Les variables d'environnement SMTP sont manquantes ou incomplètes.");
             }
 
-            // Validations métier
-            if (devis.Depart?.Trim().Equals(devis.Arrivee?.Trim(), StringComparison.OrdinalIgnoreCase) == true)
-            {
-                _logger.LogWarning("⚠️ Départ et arrivée identiques pour {Nom}", devis.Nom);
-                return BadRequest(new { message = "Le départ et l'arrivée ne peuvent pas être identiques." });
-            }
+            var subject = $"Nouveau devis de {devis.Nom}";
 
-            if (devis.DateHeure <= DateTime.Now)
-            {
-                _logger.LogWarning("⚠️ Date passée pour {Nom}", devis.Nom);
-                return BadRequest(new { message = "La date de départ doit être dans le futur." });
-            }
+            var body = $@"
+<html>
+<body style=""font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; color: #333;"">
+<h2 style=""color: #007BFF;"">📩 Nouvelle demande de devis</h2>
+<p><strong>Nom :</strong> {devis.Nom}</p>
+<p><strong>Email :</strong> {devis.Email}</p>
+<p><strong>Téléphone :</strong> {devis.Telephone}</p>
+<p><strong>Départ :</strong> {devis.Depart}</p>
+<p><strong>Arrivée :</strong> {devis.Arrivee}</p>
+<p><strong>Date/Heure :</strong> {devis.DateHeure:dd/MM/yyyy HH:mm}</p>
+<p><strong>Message :</strong><br />{(string.IsNullOrWhiteSpace(devis.Message) ? "Aucun message." : devis.Message)}</p>
 
-            // Validation supplémentaire : date pas trop loin dans le futur
-            if (devis.DateHeure > DateTime.Now.AddYears(1))
-            {
-                _logger.LogWarning("⚠️ Date trop éloignée pour {Nom}", devis.Nom);
-                return BadRequest(new { message = "La date ne peut pas dépasser 1 an." });
-            }
+<hr style=""margin-top: 30px;"" />
+<p style=""font-size: 0.9em; color: #999;"">
+Cet email a été généré automatiquement depuis le site VTC.
+</p>
+</body>
+</html>";
 
-            try
+            var client = new SmtpClient(smtpHost, smtpPort)
             {
-                await _emailService.EnvoyerDevisAsync(devis);
-                _logger.LogInformation("✅ Devis traité avec succès pour {Nom}", devis.Nom);
+                Credentials = new NetworkCredential(smtpUser, smtpPass),
+                EnableSsl = true
+            };
 
-                return Ok(new
-                {
-                    message = "Devis envoyé avec succès. Nous vous recontacterons rapidement.",
-                    timestamp = DateTime.UtcNow
-                });
-            }
-            catch (Exception ex)
+            var message = new MailMessage(smtpUser, destinataire, subject, body)
             {
-                _logger.LogError(ex, "❌ Erreur lors de l'envoi du devis pour {Nom}", devis.Nom);
-                return StatusCode(500, new
-                {
-                    message = "Erreur serveur. Veuillez réessayer ou nous contacter directement."
-                });
-            }
+                IsBodyHtml = true
+            };
+
+            client.Send(message);
         }
     }
 }

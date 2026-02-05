@@ -1,72 +1,58 @@
-using MonBackendVTC.Services;
-using Microsoft.AspNetCore.RateLimiting;
-using System.Threading.RateLimiting;
+ï»¿using MonBackendVTC.Services;
+using System.Net.Http;
+using System.Timers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ===== CORS (sécurisé pour production) =====
+// Autoriser CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", policy =>
+    options.AddPolicy("AllowAll", policy =>
     {
         policy
-            .WithOrigins(
-                "https://ndrive.fr",
-                "https://www.ndrive.fr" // Ajouter www si nécessaire
-            )
+            .AllowAnyOrigin()
             .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials(); // Si vous utilisez des cookies/auth
+            .AllowAnyMethod();
     });
 });
 
-// ===== Rate Limiting (anti-spam) =====
-builder.Services.AddRateLimiter(options =>
-{
-    options.AddFixedWindowLimiter("devis", opt =>
-    {
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.PermitLimit = 3; // Max 3 requêtes par minute
-        opt.QueueLimit = 0;
-    });
-
-    options.OnRejected = async (context, token) =>
-    {
-        context.HttpContext.Response.StatusCode = 429;
-        await context.HttpContext.Response.WriteAsync(
-            "Trop de requêtes. Veuillez réessayer dans quelques instants.",
-            token
-        );
-    };
-});
-
-// ===== Services =====
+// Services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-
-// EmailService avec injection de dépendances
 builder.Services.AddSingleton<EmailService>();
-
-// HttpClient pour le self-ping (gestion propre des ressources)
-builder.Services.AddHttpClient("SelfPing", client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(30);
-});
-
-// Service de fond pour le self-ping
-builder.Services.AddHostedService<SelfPingService>();
 
 var app = builder.Build();
 
-// ===== Middleware =====
-app.UseCors("AllowFrontend");
+// Middleware
+app.UseCors("AllowAll");
 app.UseHttpsRedirection();
-
-// Rate limiting middleware
-app.UseRateLimiter();
-
 app.UseAuthorization();
 app.MapControllers();
 
-// ===== Run =====
+// Self-ping automatique pour garder le serveur Ã©veillÃ©
+var httpClient = new HttpClient();
+var pingTimer = new System.Timers.Timer(5 * 60 * 1000); // toutes les 5 minutes
+pingTimer.Elapsed += async (sender, e) =>
+{
+    try
+    {
+        // URL selon l'environnement
+        var pingUrl = builder.Environment.IsDevelopment()
+            ? "http://localhost:5044/api/health"
+            : "https://uber-iiia.onrender.com/api/health";
+
+        var response = await httpClient.GetAsync(pingUrl);
+        if (response.IsSuccessStatusCode)
+            Console.WriteLine("[Ping] Serveur Ã©veillÃ© " + DateTime.Now);
+        else
+            Console.WriteLine("[Ping] Erreur serveur " + DateTime.Now);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("[Ping] Impossible de ping le serveur : " + ex.Message);
+    }
+};
+pingTimer.Start();
+
+// Run
 app.Run();

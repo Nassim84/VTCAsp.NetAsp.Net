@@ -1,93 +1,55 @@
-using SendGrid;
-using SendGrid.Helpers.Mail;
+using Microsoft.AspNetCore.Mvc;
 using MonBackendVTC.Models;
+using MonBackendVTC.Services;
 
-namespace MonBackendVTC.Services
+namespace MonBackendVTC.Controllers
 {
-    public class EmailService
+    [ApiController]
+    [Route("api/[controller]")]
+    public class DevisController : ControllerBase
     {
-        private readonly ILogger<EmailService> _logger;
+        private readonly EmailService _emailService;
 
-        public EmailService(ILogger<EmailService> logger)
+        public DevisController(EmailService emailService)
         {
-            _logger = logger;
+            _emailService = emailService;
         }
 
-        public async Task EnvoyerDevisAsync(DevisRequest devis)
+        [HttpPost]
+        public IActionResult Envoyer([FromBody] DevisRequest devis)
         {
-            _logger.LogInformation("📨 Début envoi devis pour {Nom}", devis.Nom);
+            Console.WriteLine($"[DevisController] 📩 Nouvelle demande reçue de {devis.Nom} ({devis.Email})");
 
-            var apiKey = Environment.GetEnvironmentVariable("SENDGRID_API_KEY");
-            var fromEmail = Environment.GetEnvironmentVariable("SENDGRID_FROM_EMAIL");
-            var toEmail = Environment.GetEnvironmentVariable("SMTP_RECIPIENT");
-
-            // 🔍 DEBUG CONFIG
-            _logger.LogInformation("🔍 SENDGRID_API_KEY présent ? {HasKey}", !string.IsNullOrWhiteSpace(apiKey));
-            _logger.LogInformation("🔍 FROM_EMAIL = {From}", fromEmail);
-            _logger.LogInformation("🔍 TO_EMAIL = {To}", toEmail);
-
-            if (string.IsNullOrWhiteSpace(apiKey) ||
-                string.IsNullOrWhiteSpace(fromEmail) ||
-                string.IsNullOrWhiteSpace(toEmail))
+            // Vérifie que le modèle est valide
+            if (!ModelState.IsValid)
             {
-                _logger.LogError("❌ Variables d'environnement SendGrid manquantes !");
-                throw new InvalidOperationException("Config SendGrid manquante");
+                Console.WriteLine("[DevisController] ❌ Modèle invalide");
+                return BadRequest(ModelState);
             }
 
-            var client = new SendGridClient(apiKey);
+            // Validation métier personnalisée
+            if (devis.Depart == devis.Arrivee)
+            {
+                Console.WriteLine("[DevisController] ⚠️ Lieu de départ et d'arrivée identiques");
+                return BadRequest(new { message = "Le départ et l'arrivée ne peuvent pas être identiques." });
+            }
 
-            var from = new EmailAddress(fromEmail, "VTC NDrive");
-            var to = new EmailAddress(toEmail);
-
-            var subject = $"🚗 Nouveau devis de {devis.Nom}";
-
-            var htmlContent = $@"
-<html>
-<body style=""font-family: Arial; padding:20px;"">
-<h2>Nouvelle demande de devis</h2>
-
-<p><b>Nom:</b> {System.Net.WebUtility.HtmlEncode(devis.Nom)}</p>
-<p><b>Email:</b> {System.Net.WebUtility.HtmlEncode(devis.Email)}</p>
-<p><b>Téléphone:</b> {System.Net.WebUtility.HtmlEncode(devis.Telephone)}</p>
-<p><b>Départ:</b> {System.Net.WebUtility.HtmlEncode(devis.Depart)}</p>
-<p><b>Arrivée:</b> {System.Net.WebUtility.HtmlEncode(devis.Arrivee)}</p>
-<p><b>Date:</b> {devis.DateHeure:dd/MM/yyyy HH:mm}</p>
-<p><b>Message:</b><br/>
-{System.Net.WebUtility.HtmlEncode(devis.Message ?? "Aucun")}</p>
-
-</body>
-</html>";
-
-            var msg = MailHelper.CreateSingleEmail(
-                from,
-                to,
-                subject,
-                "Nouveau devis reçu",
-                htmlContent
-            );
+            if (devis.DateHeure <= DateTime.Now)
+            {
+                Console.WriteLine("[DevisController] ⚠️ Date de départ passée");
+                return BadRequest(new { message = "La date de départ doit être dans le futur." });
+            }
 
             try
             {
-                _logger.LogInformation("📡 Appel SendGrid API...");
-
-                var response = await client.SendEmailAsync(msg);
-
-                var body = await response.Body.ReadAsStringAsync();
-
-                _logger.LogInformation("📬 SendGrid Status = {Status}", response.StatusCode);
-                _logger.LogInformation("📬 SendGrid Body = {Body}", body);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw new Exception($"SendGrid failed: {response.StatusCode}");
-                }
-
-                _logger.LogInformation("✅ Email envoyé avec succès !");
+                _emailService.EnvoyerDevis(devis);
+                Console.WriteLine("[DevisController] ✅ Email envoyé avec succès !");
+                return Ok(new { message = "Devis envoyé avec succès." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ ECHEC envoi email");
-                throw;
+                Console.WriteLine($"[DevisController] ❌ Erreur lors de l'envoi du mail : {ex.Message}");
+                return StatusCode(500, new { message = "Erreur serveur : impossible d'envoyer le devis." });
             }
         }
     }

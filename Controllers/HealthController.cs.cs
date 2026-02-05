@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 
-namespace MonBackendVTC.Controllers
+namespace Uber.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
@@ -11,9 +11,8 @@ namespace MonBackendVTC.Controllers
         {
             return Ok(new
             {
-                status = "healthy", // ou "OK" comme tu préfères
-                timestamp = DateTime.UtcNow, // UTC pour cohérence
-                service = "VTC Backend"
+                status = "OK",
+                time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
             });
         }
     }
