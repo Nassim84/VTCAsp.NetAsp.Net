@@ -1,5 +1,5 @@
-using System.Net;
-using System.Net.Mail;
+using SendGrid;
+using SendGrid.Helpers.Mail;
 using MonBackendVTC.Models;
 
 namespace MonBackendVTC.Services
@@ -15,64 +15,79 @@ namespace MonBackendVTC.Services
 
         public async Task EnvoyerDevisAsync(DevisRequest devis)
         {
-            var smtpHost = Environment.GetEnvironmentVariable("SMTP_HOST");
-            var smtpPort = int.Parse(Environment.GetEnvironmentVariable("SMTP_PORT") ?? "587");
-            var smtpUser = Environment.GetEnvironmentVariable("SMTP_USER");
-            var smtpPass = Environment.GetEnvironmentVariable("SMTP_PASSWORD");
-            var destinataire = Environment.GetEnvironmentVariable("SMTP_RECIPIENT");
+            _logger.LogInformation("📨 Début envoi devis pour {Nom}", devis.Nom);
 
-            if (string.IsNullOrWhiteSpace(smtpHost) ||
-                string.IsNullOrWhiteSpace(smtpUser) ||
-                string.IsNullOrWhiteSpace(smtpPass) ||
-                string.IsNullOrWhiteSpace(destinataire))
+            var apiKey = Environment.GetEnvironmentVariable("SENDGRID_API_KEY");
+            var fromEmail = Environment.GetEnvironmentVariable("SENDGRID_FROM_EMAIL");
+            var toEmail = Environment.GetEnvironmentVariable("SMTP_RECIPIENT");
+
+            // 🔍 DEBUG CONFIG
+            _logger.LogInformation("🔍 SENDGRID_API_KEY présent ? {HasKey}", !string.IsNullOrWhiteSpace(apiKey));
+            _logger.LogInformation("🔍 FROM_EMAIL = {From}", fromEmail);
+            _logger.LogInformation("🔍 TO_EMAIL = {To}", toEmail);
+
+            if (string.IsNullOrWhiteSpace(apiKey) ||
+                string.IsNullOrWhiteSpace(fromEmail) ||
+                string.IsNullOrWhiteSpace(toEmail))
             {
-                _logger.LogError("❌ Configuration SMTP incomplète");
-                throw new InvalidOperationException("Les variables d'environnement SMTP sont manquantes.");
+                _logger.LogError("❌ Variables d'environnement SendGrid manquantes !");
+                throw new InvalidOperationException("Config SendGrid manquante");
             }
 
-            var subject = $"Nouveau devis de {WebUtility.HtmlEncode(devis.Nom)}";
+            var client = new SendGridClient(apiKey);
 
-            var body = $@"
-            <html>
-            <body style=""font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; color: #333;"">
-                <h2 style=""color: #007BFF;"">📩 Nouvelle demande de devis</h2>
-                <p><strong>Nom :</strong> {WebUtility.HtmlEncode(devis.Nom)}</p>
-                <p><strong>Email :</strong> {WebUtility.HtmlEncode(devis.Email)}</p>
-                <p><strong>Téléphone :</strong> {WebUtility.HtmlEncode(devis.Telephone)}</p>
-                <p><strong>Départ :</strong> {WebUtility.HtmlEncode(devis.Depart)}</p>
-                <p><strong>Arrivée :</strong> {WebUtility.HtmlEncode(devis.Arrivee)}</p>
-                <p><strong>Date/Heure :</strong> {devis.DateHeure:dd/MM/yyyy HH:mm}</p>
-                <p><strong>Message :</strong><br />{WebUtility.HtmlEncode(devis.Message ?? "Aucun message.")}</p>
+            var from = new EmailAddress(fromEmail, "VTC NDrive");
+            var to = new EmailAddress(toEmail);
 
-                <hr style=""margin-top: 30px;"" />
-                <p style=""font-size: 0.9em; color: #999;"">
-                Cet email a été généré automatiquement depuis le site VTC.
-                </p>
-            </body>
-            </html>";
+            var subject = $"🚗 Nouveau devis de {devis.Nom}";
+
+            var htmlContent = $@"
+<html>
+<body style=""font-family: Arial; padding:20px;"">
+<h2>Nouvelle demande de devis</h2>
+
+<p><b>Nom:</b> {System.Net.WebUtility.HtmlEncode(devis.Nom)}</p>
+<p><b>Email:</b> {System.Net.WebUtility.HtmlEncode(devis.Email)}</p>
+<p><b>Téléphone:</b> {System.Net.WebUtility.HtmlEncode(devis.Telephone)}</p>
+<p><b>Départ:</b> {System.Net.WebUtility.HtmlEncode(devis.Depart)}</p>
+<p><b>Arrivée:</b> {System.Net.WebUtility.HtmlEncode(devis.Arrivee)}</p>
+<p><b>Date:</b> {devis.DateHeure:dd/MM/yyyy HH:mm}</p>
+<p><b>Message:</b><br/>
+{System.Net.WebUtility.HtmlEncode(devis.Message ?? "Aucun")}</p>
+
+</body>
+</html>";
+
+            var msg = MailHelper.CreateSingleEmail(
+                from,
+                to,
+                subject,
+                "Nouveau devis reçu",
+                htmlContent
+            );
 
             try
             {
-                using var client = new SmtpClient(smtpHost, smtpPort)
-                {
-                    Credentials = new NetworkCredential(smtpUser, smtpPass),
-                    EnableSsl = true,
-                    Timeout = 10000 // 10 secondes timeout
-                };
+                _logger.LogInformation("📡 Appel SendGrid API...");
 
-                using var message = new MailMessage(smtpUser, destinataire, subject, body)
-                {
-                    IsBodyHtml = true
-                };
+                var response = await client.SendEmailAsync(msg);
 
-                await client.SendMailAsync(message);
-                _logger.LogInformation("✅ Email envoyé à {Destinataire} pour {Client}",
-                    destinataire, devis.Nom);
+                var body = await response.Body.ReadAsStringAsync();
+
+                _logger.LogInformation("📬 SendGrid Status = {Status}", response.StatusCode);
+                _logger.LogInformation("📬 SendGrid Body = {Body}", body);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new Exception($"SendGrid failed: {response.StatusCode}");
+                }
+
+                _logger.LogInformation("✅ Email envoyé avec succès !");
             }
-            catch (SmtpException ex)
+            catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Erreur SMTP lors de l'envoi du devis");
-                throw new InvalidOperationException("Impossible d'envoyer l'email. Veuillez réessayer.", ex);
+                _logger.LogError(ex, "❌ ECHEC envoi email");
+                throw;
             }
         }
     }
