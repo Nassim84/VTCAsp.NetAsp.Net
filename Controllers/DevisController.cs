@@ -1,60 +1,56 @@
-using System.Net;
-using System.Net.Mail;
+using Microsoft.AspNetCore.Mvc;
 using MonBackendVTC.Models;
+using MonBackendVTC.Services;
 
-namespace MonBackendVTC.Services
+namespace MonBackendVTC.Controllers
 {
-    public class EmailService
+    [ApiController]
+    [Route("api/[controller]")]
+    public class DevisController : ControllerBase
     {
-        public void EnvoyerDevis(DevisRequest devis)
-        {
-            var smtpHost = Environment.GetEnvironmentVariable("SMTP_HOST");
-            var smtpPort = int.Parse(Environment.GetEnvironmentVariable("SMTP_PORT") ?? "587");
-            var smtpUser = Environment.GetEnvironmentVariable("SMTP_USER");
-            var smtpPass = Environment.GetEnvironmentVariable("SMTP_PASSWORD");
-            var destinataire = Environment.GetEnvironmentVariable("SMTP_RECIPIENT");
+        private readonly EmailService _emailService;
 
-            if (string.IsNullOrWhiteSpace(smtpHost) ||
-                string.IsNullOrWhiteSpace(smtpUser) ||
-                string.IsNullOrWhiteSpace(smtpPass) ||
-                string.IsNullOrWhiteSpace(destinataire))
+        public DevisController(EmailService emailService)
+        {
+            _emailService = emailService;
+        }
+
+        [HttpPost]
+        public IActionResult Envoyer([FromBody] DevisRequest devis)
+        {
+            Console.WriteLine($"[DevisController] 📩 Nouvelle demande reçue de {devis.Nom} ({devis.Email})");
+
+            // Vérifie que le modèle est valide
+            if (!ModelState.IsValid)
             {
-                throw new InvalidOperationException("Les variables d'environnement SMTP sont manquantes ou incomplètes.");
+                Console.WriteLine("[DevisController] ❌ Modèle invalide");
+                return BadRequest(ModelState);
             }
 
-            var subject = $"Nouveau devis de {devis.Nom}";
-
-            var body = $@"
-<html>
-<body style=""font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; color: #333;"">
-<h2 style=""color: #007BFF;"">📩 Nouvelle demande de devis</h2>
-<p><strong>Nom :</strong> {devis.Nom}</p>
-<p><strong>Email :</strong> {devis.Email}</p>
-<p><strong>Téléphone :</strong> {devis.Telephone}</p>
-<p><strong>Départ :</strong> {devis.Depart}</p>
-<p><strong>Arrivée :</strong> {devis.Arrivee}</p>
-<p><strong>Date/Heure :</strong> {devis.DateHeure:dd/MM/yyyy HH:mm}</p>
-<p><strong>Message :</strong><br />{(string.IsNullOrWhiteSpace(devis.Message) ? "Aucun message." : devis.Message)}</p>
-
-<hr style=""margin-top: 30px;"" />
-<p style=""font-size: 0.9em; color: #999;"">
-Cet email a été généré automatiquement depuis le site VTC.
-</p>
-</body>
-</html>";
-
-            var client = new SmtpClient(smtpHost, smtpPort)
+            // Validation métier personnalisée
+            if (devis.Depart == devis.Arrivee)
             {
-                Credentials = new NetworkCredential(smtpUser, smtpPass),
-                EnableSsl = true
-            };
+                Console.WriteLine("[DevisController] ⚠️ Lieu de départ et d'arrivée identiques");
+                return BadRequest(new { message = "Le départ et l'arrivée ne peuvent pas être identiques." });
+            }
 
-            var message = new MailMessage(smtpUser, destinataire, subject, body)
+            if (devis.DateHeure <= DateTime.Now)
             {
-                IsBodyHtml = true
-            };
+                Console.WriteLine("[DevisController] ⚠️ Date de départ passée");
+                return BadRequest(new { message = "La date de départ doit être dans le futur." });
+            }
 
-            client.Send(message);
+            try
+            {
+                _emailService.EnvoyerDevis(devis);
+                Console.WriteLine("[DevisController] ✅ Email envoyé avec succès !");
+                return Ok(new { message = "Devis envoyé avec succès." });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DevisController] ❌ Erreur lors de l'envoi du mail : {ex.Message}");
+                return StatusCode(500, new { message = "Erreur serveur : impossible d'envoyer le devis." });
+            }
         }
     }
 }
