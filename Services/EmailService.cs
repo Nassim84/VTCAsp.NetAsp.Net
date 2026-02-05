@@ -1,6 +1,7 @@
+using MonBackendVTC.Models;
 using System.Net;
 using System.Net.Mail;
-using MonBackendVTC.Models;
+using System.Net.Sockets;
 
 namespace MonBackendVTC.Services
 {
@@ -13,6 +14,24 @@ namespace MonBackendVTC.Services
             var smtpUser = Environment.GetEnvironmentVariable("SMTP_USER");
             var smtpPass = Environment.GetEnvironmentVariable("SMTP_PASSWORD");
             var destinataire = Environment.GetEnvironmentVariable("SMTP_RECIPIENT");
+
+            Console.WriteLine("[SMTP TEST] Test connectivité...");
+
+            try
+            {
+                using var tcp = new TcpClient();
+                var task = tcp.ConnectAsync(smtpHost, smtpPort);
+                task.Wait(5000);
+
+                if (tcp.Connected)
+                    Console.WriteLine("[SMTP TEST] ✅ SMTP reachable");
+                else
+                    Console.WriteLine("[SMTP TEST] ❌ SMTP NOT reachable");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[SMTP TEST] ❌ Exception: " + ex.Message);
+            }
 
             if (string.IsNullOrWhiteSpace(smtpHost) || string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPass) || string.IsNullOrWhiteSpace(destinataire))
             {
