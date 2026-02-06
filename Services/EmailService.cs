@@ -18,7 +18,7 @@ namespace MonBackendVTC.Services
             _logger = logger;
         }
 
-        public async Task EnvoyerDevis(DevisRequest devis)
+        public async Task EnvoyerDevisAsync(DevisRequest devis)
         {
             var apiKey = Environment.GetEnvironmentVariable("BREVO_API_KEY");
             var senderEmail = Environment.GetEnvironmentVariable("BREVO_SENDER_EMAIL");
