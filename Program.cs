@@ -44,13 +44,11 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// EmailService avec injection de d�pendances
-builder.Services.AddSingleton<EmailService>(sp =>
-    new EmailService(
-        sp.GetRequiredService<IHttpClientFactory>(),
-        sp.GetRequiredService<ILogger<EmailService>>()
-    )
-);
+// HttpClient (OBLIGATOIRE pour IHttpClientFactory)
+builder.Services.AddHttpClient();
+
+// EmailService en Scoped (meilleure pratique)
+builder.Services.AddScoped<EmailService>();
 
 // HttpClient pour le self-ping (gestion propre des ressources)
 builder.Services.AddHttpClient("SelfPing", client =>
