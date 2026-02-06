@@ -45,7 +45,12 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
 // EmailService avec injection de dépendances
-builder.Services.AddSingleton<EmailService>();
+builder.Services.AddSingleton<EmailService>(sp =>
+    new EmailService(
+        sp.GetRequiredService<IHttpClientFactory>(),
+        sp.GetRequiredService<ILogger<EmailService>>()
+    )
+);
 
 // HttpClient pour le self-ping (gestion propre des ressources)
 builder.Services.AddHttpClient("SelfPing", client =>
