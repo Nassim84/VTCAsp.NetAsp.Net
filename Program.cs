@@ -20,7 +20,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// EmailService avec injection de dépendances
+// EmailService avec injection de dï¿½pendances
 builder.Services.AddSingleton<EmailService>(sp =>
     new EmailService(
         sp.GetRequiredService<IHttpClientFactory>(),
