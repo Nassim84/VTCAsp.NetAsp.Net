@@ -21,11 +21,6 @@ namespace MonBackendVTC.Services
             var fromEmail = Environment.GetEnvironmentVariable("SENDGRID_FROM_EMAIL");
             var toEmail = Environment.GetEnvironmentVariable("SMTP_RECIPIENT");
 
-            // 🔍 DEBUG CONFIG
-            _logger.LogInformation("🔍 SENDGRID_API_KEY présent ? {HasKey}", !string.IsNullOrWhiteSpace(apiKey));
-            _logger.LogInformation("🔍 FROM_EMAIL = {From}", fromEmail);
-            _logger.LogInformation("🔍 TO_EMAIL = {To}", toEmail);
-
             if (string.IsNullOrWhiteSpace(apiKey) ||
                 string.IsNullOrWhiteSpace(fromEmail) ||
                 string.IsNullOrWhiteSpace(toEmail))
@@ -41,20 +36,32 @@ namespace MonBackendVTC.Services
 
             var subject = $"🚗 Nouveau devis de {devis.Nom}";
 
+            // HTML Mail responsive et sécurisé
             var htmlContent = $@"
 <html>
-<body style=""font-family: Arial; padding:20px;"">
-<h2>Nouvelle demande de devis</h2>
+<head>
+<meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+<style>
+body {{ font-family: Arial, sans-serif; line-height:1.5; padding:20px; color:#333; }}
+h2 {{ color:#007BFF; }}
+p {{ margin:5px 0; }}
+hr {{ margin:20px 0; border:none; border-top:1px solid #eee; }}
+.footer {{ font-size:0.8em; color:#999; }}
+</style>
+</head>
+<body>
+<h2>📩 Nouvelle demande de devis</h2>
 
-<p><b>Nom:</b> {System.Net.WebUtility.HtmlEncode(devis.Nom)}</p>
-<p><b>Email:</b> {System.Net.WebUtility.HtmlEncode(devis.Email)}</p>
-<p><b>Téléphone:</b> {System.Net.WebUtility.HtmlEncode(devis.Telephone)}</p>
-<p><b>Départ:</b> {System.Net.WebUtility.HtmlEncode(devis.Depart)}</p>
-<p><b>Arrivée:</b> {System.Net.WebUtility.HtmlEncode(devis.Arrivee)}</p>
-<p><b>Date:</b> {devis.DateHeure:dd/MM/yyyy HH:mm}</p>
-<p><b>Message:</b><br/>
-{System.Net.WebUtility.HtmlEncode(devis.Message ?? "Aucun")}</p>
+<p><strong>Nom :</strong> {System.Net.WebUtility.HtmlEncode(devis.Nom)}</p>
+<p><strong>Email :</strong> {System.Net.WebUtility.HtmlEncode(devis.Email)}</p>
+<p><strong>Téléphone :</strong> {System.Net.WebUtility.HtmlEncode(devis.Telephone)}</p>
+<p><strong>Départ :</strong> {System.Net.WebUtility.HtmlEncode(devis.Depart)}</p>
+<p><strong>Arrivée :</strong> {System.Net.WebUtility.HtmlEncode(devis.Arrivee)}</p>
+<p><strong>Date :</strong> {devis.DateHeure:dd/MM/yyyy HH:mm}</p>
+<p><strong>Message :</strong><br/>{System.Net.WebUtility.HtmlEncode(devis.Message ?? "Aucun message")}</p>
 
+<hr/>
+<p class=""footer"">Cet email a été généré automatiquement depuis le site VTC NDrive.</p>
 </body>
 </html>";
 
@@ -62,14 +69,16 @@ namespace MonBackendVTC.Services
                 from,
                 to,
                 subject,
-                "Nouveau devis reçu",
+                "Nouveau devis reçu", // plain text fallback
                 htmlContent
             );
+
+            // Répondre au client si besoin
+            msg.ReplyTo = new EmailAddress(devis.Email, devis.Nom);
 
             try
             {
                 _logger.LogInformation("📡 Appel SendGrid API...");
-
                 var response = await client.SendEmailAsync(msg);
 
                 var body = await response.Body.ReadAsStringAsync();
@@ -86,7 +95,7 @@ namespace MonBackendVTC.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ ECHEC envoi email");
+                _logger.LogError(ex, "❌ ECHEC envoi email pour {Nom}", devis.Nom);
                 throw;
             }
         }
